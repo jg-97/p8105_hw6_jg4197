@@ -35,14 +35,18 @@ child_weight <- read_csv("./data_for_hw6/birthweight.csv") %>%
          pnumlbw = factor(pnumlbw),
          pnumsga = factor(pnumsga),
          smoken = factor(smoken))
+child_weight
   
 ## propose self-regression model for birthweight
-# interested in mother's weight at delivery and presence of malformation
+# interested in circumference, mother's weight at delivery and presence of malformation
 child_self <- child_weight %>% 
-  select(bwt, delwt, malform)
+  select(bwt, bhead, delwt, malform)
 
-self_model <- child_self %>% lm(bwt ~ delwt + malform, data = .)
+self_model <- child_self %>% lm(bwt ~ bhead + delwt + malform, data = .)
 
+## reason: circumference of the baby's head is directly related with the baby weight confirmed by many research providing mathematical proof. mother's delivery weight can also affect baby' weight since the weight of mother can be seen whether the nutrition provided by mother during pregnancy is adequate for baby's growing. The presence of malformation is similar since the scarce nutrition to babies can lead to baby's low weight.
+
+# add residuals and predicted values
 child_self <- child_self %>% 
   add_predictions(self_model) %>% 
   add_residuals(self_model)
@@ -68,7 +72,7 @@ cv_df <- crossv_mc(child_weight, 100) %>%
 
 
 cv_df <- cv_df %>% 
-  mutate(self_model = map(train, ~lm(bwt ~ delwt + malform, data = .x)), 
+  mutate(self_model = map(train, ~lm(bwt ~ bhead + delwt + mrace, data = .x)), 
          comp1_model = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
          comp2_model = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex, data = .x)))%>% 
   mutate(rmse_self = map2_dbl(self_model, test, ~rmse(model = .x, data = .y)),
@@ -86,7 +90,7 @@ cv_df %>%
   ) %>% 
   mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = model, y = rmse)) + geom_violin(aes(fill = model), alpha = .7) +
-  scale_x_discrete(labels = c("mother's weight + malform", "length + gestation", "head + length + sex")) +
+  scale_x_discrete(labels = c("head + mother's weight + malform", "length + gestation", "head + length + sex")) +
   labs(title = "Comparisons on RMSE between three models",
        x = "Type of model",
        y = "RMSE") +
@@ -94,6 +98,8 @@ cv_df %>%
 
 
 ```
+
+According to the violin plot, we can see the best among three is the _bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babyse_ model which consider the interaction of the variables
 
 
 ## distribution of two estimates
@@ -111,22 +117,7 @@ weather_df =
     tmax = tmax / 10) %>%
   select(name, id, everything())
 
-## simple linear regression model
-slr <- weather_df %>% lm(tmax ~ tmin, data = .)
-
-## r square
-r_square <- slr %>% broom::glance() %>% .[[1]]
-r_square
-
-## log(beta0_hat, beta1_hat)
-beta0_hat <- slr %>% broom::tidy() %>% .[[1,2]]
-beta0_hat
-beta1_hat <- slr %>% broom::tidy() %>% .[[2,2]]
-beta1_hat
-
-log_betahat <- log(beta0_hat*beta1_hat)
-log_betahat
-
+set.seed(1)
 
 ## Do bootstrap and show distribution
 
