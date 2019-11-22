@@ -151,7 +151,7 @@ r_square %>%
        x = "r square",
        y = "Density") +
   theme(legend.position = "none")
-## left-skewed
+## The distribution is left-skewed meaning the median is larger than mean
 
 ## calculate the CI of r square
 quantile(r_square$r.squared, probs = c(0.025, 0.975))
@@ -183,7 +183,7 @@ beta_hat %>%
        x = "ln(beta0_hat*beta1_hat)",
        y = "Density") +
   theme(legend.position = "none")
-## normal distribution with a slight left-skewed
+## normal distribution with a slight left-skewed but it can still be seen the normal distribution
 
 ## calculate the CI of log(beta0*beta1)
 quantile(beta_hat$log_betahat, c(0.025, 0.975))
