@@ -13,8 +13,11 @@ knitr::opts_chunk$set(message = FALSE,
 
 library(tidyverse)
 library(modelr)
+library(leaps)
 
 theme_set(theme_bw())
+
+set.seed(1)
 ```
 
 ## tidiness and construct a chosen model
@@ -30,24 +33,32 @@ child_weight <- read_csv("./data_for_hw6/birthweight.csv") %>%
          malform = factor(malform, levels = c(0, 1),
                           labels = c("absent", "present")),
          mrace = factor(mrace, levels = c(1, 2, 3, 4, 8),
-                        labels = c("white", "black", "asian", "puerto", "other")),
-         parity = factor(parity),
-         pnumlbw = factor(pnumlbw),
-         pnumsga = factor(pnumsga),
-         smoken = factor(smoken))
+                        labels = c("white", "black", "asian", "puerto", "other")))
 child_weight
   
 ## propose self-regression model for birthweight
-# interested in circumference, mother's weight at delivery and presence of malformation
-child_self <- child_weight %>% 
-  select(bwt, bhead, delwt, malform)
+# using rules to select the best model
 
-self_model <- child_self %>% lm(bwt ~ bhead + delwt + malform, data = .)
+best <- function(model, ...) 
+{
+  subsets <- regsubsets(formula(model), model.frame(model), ...)
+  subsets <- with(summary(subsets),
+                  cbind(p = as.numeric(rownames(which)), which, rss, rsq, adjr2, cp, bic))
+  
+  return(subsets)
+}
 
-## reason: circumference of the baby's head is directly related with the baby weight confirmed by many research providing mathematical proof. mother's delivery weight can also affect baby' weight since the weight of mother can be seen whether the nutrition provided by mother during pregnancy is adequate for baby's growing. The presence of malformation is similar since the scarce nutrition to babies can lead to baby's low weight.
+all_model <- lm(bwt ~ ., data = child_weight)
+best(all_model, nbest = 1)
+
+# we can get the best model with nine parameters by choosing lowest AIC, BIC, rse, highest adjr2
+
+self_model <- child_weight %>% lm(bwt ~ babysex + bhead + blength + delwt + frace + gaweeks + mrace + ppbmi + smoken, data = .)
+
+## reason: lowest AIC, BIC, rse mean the low SSE meaning the variance is low. Highest adjr2 means good proportion of variance of y can be explained by x
 
 # add residuals and predicted values
-child_self <- child_self %>% 
+child_self <- child_weight %>% 
   add_predictions(self_model) %>% 
   add_residuals(self_model)
 
@@ -58,6 +69,7 @@ child_self %>%
   labs(title = "Residuals vs fitted value plot",
        X = "Predicted fitted value", 
        y = "Residual value")
+# except a few cases departing the line y=0, all cases can be seen as the symmetric to y=0. The variance keeps in balance. However, when the fitted value becomes smaller, the residual tend to be increasing.
 ```
 
 
@@ -72,7 +84,7 @@ cv_df <- crossv_mc(child_weight, 100) %>%
 
 
 cv_df <- cv_df %>% 
-  mutate(self_model = map(train, ~lm(bwt ~ bhead + delwt + mrace, data = .x)), 
+  mutate(self_model = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + frace + gaweeks + mrace + ppbmi + smoken, data = .x)), 
          comp1_model = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
          comp2_model = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex, data = .x)))%>% 
   mutate(rmse_self = map2_dbl(self_model, test, ~rmse(model = .x, data = .y)),
@@ -90,16 +102,17 @@ cv_df %>%
   ) %>% 
   mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = model, y = rmse)) + geom_violin(aes(fill = model), alpha = .7) +
-  scale_x_discrete(labels = c("head + mother's weight + malform", "length + gestation", "head + length + sex")) +
+  scale_x_discrete(labels = c("self_best_model", "length + gestation", "head + length + sex")) +
   labs(title = "Comparisons on RMSE between three models",
        x = "Type of model",
        y = "RMSE") +
   theme(legend.position = "none")
+# the self_model across the model selection has the lowest rmse, meaning the model has the greatest predictive ability since the test data gives a good result.
 
 
 ```
 
-According to the violin plot, we can see the best among three is the _bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babyse_ model which consider the interaction of the variables
+According to the violin plot, we can see the best among three is the _bwt ~ babysex + bhead + blength + delwt + frace + gaweeks + mrace + ppbmi + smoken_ model by selection.
 
 
 ## distribution of two estimates
@@ -117,10 +130,9 @@ weather_df =
     tmax = tmax / 10) %>%
   select(name, id, everything())
 
-set.seed(1)
 
 ## Do bootstrap and show distribution
-
+## r square
 r_square <- weather_df %>%  
   bootstrap(n = 5000) %>% 
   mutate(
@@ -141,8 +153,11 @@ r_square %>%
   theme(legend.position = "none")
 ## left-skewed
 
+## calculate the CI of r square
+quantile(r_square$r.squared, probs = c(0.025, 0.975))
 
 
+## beta_hat
 beta_hat <- weather_df %>%  
   bootstrap(n = 5000) %>% 
   mutate(
@@ -152,19 +167,14 @@ beta_hat <- weather_df %>%
   ) %>% 
   select(-slr_model, everything()) %>% 
   unnest(for_betahat) %>% 
-  select(.id, term, estimate)
+  select(.id, term, estimate) %>% 
+  pivot_wider(
+  names_from = "term",
+  values_from = "estimate"
+) %>% 
+  mutate(log_betahat = log(`(Intercept)` * tmin))
 
-estimate <- beta_hat %>% 
-  filter(term == "tmin")
-
-betahat_df <- beta_hat %>% 
-  filter(term == "(Intercept)") %>% 
-  full_join(estimate, by = ".id") %>% 
-  select(id = .id, intercept = estimate.x, tmin = estimate.y) %>% 
-  mutate(log_betahat = log(intercept*tmin)) %>% 
-  select(-intercept, -tmin) 
-
-betahat_df %>% 
+beta_hat %>% 
   ggplot(aes(x = log_betahat)) +
   geom_density(aes(fill = "yellow"), size = 1.1) +
   geom_vline(aes(xintercept = mean(log_betahat)),
@@ -173,29 +183,12 @@ betahat_df %>%
        x = "ln(beta0_hat*beta1_hat)",
        y = "Density") +
   theme(legend.position = "none")
-## normal distribution
-```
+## normal distribution with a slight left-skewed
 
-
-## give confidence intervals
-
-```{r}
-
-## r_square
-ci_r <- r_square %>% 
-  summarize(mean = mean(r.squared),
-    lower = mean(r.squared) - qnorm(0.975) * sd(r.squared),
-    upper = mean(r.squared) + qnorm(0.975) * sd(r.squared))
-ci_r
-
-
-## beta_hat
-ci_beta <- betahat_df %>% 
-  summarize(mean = mean(log_betahat),
-    lower = mean(log_betahat) - qnorm(0.975) * sd(log_betahat),
-    upper = mean(log_betahat) + qnorm(0.975) * sd(log_betahat))
-ci_beta
-
+## calculate the CI of log(beta0*beta1)
+quantile(beta_hat$log_betahat, c(0.025, 0.975))
 
 ```
+
+
 
